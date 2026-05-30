@@ -16,7 +16,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .json()
         .init();
 
-    info!(subsystem = "controller", "MANPADS Edge Controller daemon booting up...");
+    info!(
+        subsystem = "controller",
+        "MANPADS Edge Controller daemon booting up..."
+    );
 
     let config = ControllerConfig::from_env()?;
     init_hmac_key(&config.hmac_secret);

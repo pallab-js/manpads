@@ -51,10 +51,12 @@ pub async fn send_operator_command(
         data.last_command_time = Some(now);
     }
 
-    state.log_event(format!(
-        "Operator requested action: {:?} (seq={})",
-        action, seq
-    )).await;
+    state
+        .log_event(format!(
+            "Operator requested action: {:?} (seq={})",
+            action, seq
+        ))
+        .await;
 
     let payload = CommandPayload {
         protocol_version: pi_controller::network::protocol::PROTOCOL_VERSION,
@@ -65,7 +67,10 @@ pub async fn send_operator_command(
         hmac: String::new(),
     };
 
-    cmd_tx.tx.send(payload).await
+    cmd_tx
+        .tx
+        .send(payload)
+        .await
         .map_err(|e| AppError::NetworkSend(e.to_string()))?;
 
     Ok(seq)
@@ -95,7 +100,7 @@ pub async fn update_settings(
         local_port,
         operator_token: existing.operator_token,
     };
-    save.save(&app_data).map_err(|e| AppError::Settings(e))?;
+    save.save(&app_data).map_err(AppError::Settings)?;
 
     {
         let mut view = state.view.write().await;
@@ -120,7 +125,11 @@ pub async fn export_audit_log(
         std::fs::create_dir_all(parent).map_err(|e| AppError::Io(e.to_string()))?;
     }
 
-    let log_content = state.data.read().await.audit_log
+    let log_content = state
+        .data
+        .read()
+        .await
+        .audit_log
         .iter()
         .map(|s| s.as_str())
         .collect::<Vec<_>>()

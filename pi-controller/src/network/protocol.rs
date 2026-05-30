@@ -12,9 +12,10 @@ pub fn init_hmac_key(secret: &str) {
 pub fn compute_hmac(payload_str: &str) -> String {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
-    let key = HMAC_KEY.get().expect("HMAC key must be initialized before use");
-    let mut mac = Hmac::<Sha256>::new_from_slice(key)
-        .expect("HMAC-SHA256 accepts any key length");
+    let key = HMAC_KEY
+        .get()
+        .expect("HMAC key must be initialized before use");
+    let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC-SHA256 accepts any key length");
     mac.update(payload_str.as_bytes());
     hex::encode(mac.finalize().into_bytes())
 }
@@ -212,7 +213,9 @@ mod tests {
             fault_flags::GPS_STALE,
         ];
         for flag in &flags {
-            if *flag == 0 { continue; }
+            if *flag == 0 {
+                continue;
+            }
             assert!((flag & (flag - 1)) == 0, "{:b} is not a power of two", flag);
         }
     }

@@ -96,7 +96,8 @@ async fn test_arm_disarm_sequence_via_udp() {
         .unwrap();
 
     // Expect ACK with success=true (telemetry arrives first — skip it)
-    let ack = recv_ack(&desktop_sock, Duration::from_secs(3)).await
+    let ack = recv_ack(&desktop_sock, Duration::from_secs(3))
+        .await
         .expect("Should receive ACK within timeout");
     assert!(ack.verify_signature(), "ACK signature should be valid");
     assert!(ack.success, "Arm command should succeed");
@@ -145,7 +146,8 @@ async fn test_unauthorized_token_rejected() {
         .await
         .unwrap();
 
-    let ack = recv_ack(&desktop_sock, Duration::from_secs(3)).await
+    let ack = recv_ack(&desktop_sock, Duration::from_secs(3))
+        .await
         .expect("Should receive ACK within timeout");
     assert!(!ack.success, "Unauthorized command should fail");
     assert!(ack.error_msg.contains("ACCESS DENIED"));

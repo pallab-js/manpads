@@ -1,6 +1,6 @@
-use proptest::prelude::*;
 use pi_controller::handler::apply_state_transition;
 use pi_controller::network::protocol::{CommandAction, SystemState};
+use proptest::prelude::*;
 
 fn any_state() -> impl Strategy<Value = SystemState> {
     prop_oneof![

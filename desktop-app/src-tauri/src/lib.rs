@@ -27,8 +27,8 @@ pub fn run() {
     let operator_token = std::env::var("MANPADS_OPERATOR_TOKEN")
         .expect("MANPADS_OPERATOR_TOKEN env var must be set");
 
-    let hmac_secret = std::env::var("MANPADS_HMAC_SECRET")
-        .expect("MANPADS_HMAC_SECRET env var must be set");
+    let hmac_secret =
+        std::env::var("MANPADS_HMAC_SECRET").expect("MANPADS_HMAC_SECRET env var must be set");
 
     init_hmac_key(&hmac_secret);
 
@@ -102,7 +102,8 @@ pub fn run() {
                         let s = state_clone.clone();
                         let h = handle.clone();
                         tauri::async_runtime::spawn(async move {
-                            s.log_event("Operator terminal session ended.".to_string()).await;
+                            s.log_event("Operator terminal session ended.".to_string())
+                                .await;
                             let _ = h.emit("connection-status", false);
                         });
                     }

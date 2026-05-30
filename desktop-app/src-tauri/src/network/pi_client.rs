@@ -6,7 +6,9 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::state::AppState;
-use pi_controller::network::protocol::{AckFrame, CommandAction, CommandPayload, SignedMessage, TelemetryFrame};
+use pi_controller::network::protocol::{
+    AckFrame, CommandAction, CommandPayload, SignedMessage, TelemetryFrame,
+};
 
 const CRITICAL_RETRY_COUNT: usize = 3;
 const CRITICAL_RETRY_INTERVAL_MS: u64 = 200;
@@ -63,7 +65,8 @@ impl PiClient {
 
             let last_telemetry_time = Arc::new(std::sync::Mutex::new(Instant::now()));
 
-            let pending_critical: Arc<std::sync::Mutex<Vec<PendingCritical>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let pending_critical: Arc<std::sync::Mutex<Vec<PendingCritical>>> =
+                Arc::new(std::sync::Mutex::new(Vec::new()));
 
             // Task A: Recv loop
             {
@@ -104,10 +107,12 @@ impl PiClient {
                                     }
 
                                     if is_new_conn {
-                                        state_recv.log_event(format!(
-                                            "Connected to Edge Controller at {}",
-                                            src
-                                        )).await;
+                                        state_recv
+                                            .log_event(format!(
+                                                "Connected to Edge Controller at {}",
+                                                src
+                                            ))
+                                            .await;
                                         let _ = app_handle_recv.emit("connection-status", true);
                                     }
 
@@ -128,10 +133,12 @@ impl PiClient {
                                         view.latency_ms = 0;
                                     }
 
-                                    state_recv.log_event(format!(
-                                        "ACK received for Cmd seq={}: success={}, latency={}ms",
-                                        ack.command_seq, ack.success, 0u64
-                                    )).await;
+                                    state_recv
+                                        .log_event(format!(
+                                            "ACK received for Cmd seq={}: success={}, latency={}ms",
+                                            ack.command_seq, ack.success, 0u64
+                                        ))
+                                        .await;
 
                                     let _ = app_handle_recv.emit("ack-update", ack);
                                 }
@@ -165,7 +172,11 @@ impl PiClient {
                                     to_retry.push(cmd);
                                     p.retries_remaining -= 1;
                                     p.sent_at = now;
-                                    warn!(seq = p.payload.seq, retries_left = p.retries_remaining, "Retrying critical command");
+                                    warn!(
+                                        seq = p.payload.seq,
+                                        retries_left = p.retries_remaining,
+                                        "Retrying critical command"
+                                    );
                                 }
                             }
                             to_retry
@@ -214,9 +225,11 @@ impl PiClient {
                             let mut seqs = Vec::new();
                             pc.retain(|p| {
                                 let total_timeout = Duration::from_millis(
-                                    (CRITICAL_RETRY_COUNT as u64) * CRITICAL_RETRY_INTERVAL_MS
+                                    (CRITICAL_RETRY_COUNT as u64) * CRITICAL_RETRY_INTERVAL_MS,
                                 );
-                                if now.duration_since(p.sent_at) > total_timeout && p.retries_remaining == 0 {
+                                if now.duration_since(p.sent_at) > total_timeout
+                                    && p.retries_remaining == 0
+                                {
                                     seqs.push(p.payload.seq);
                                     return false;
                                 }
@@ -225,11 +238,16 @@ impl PiClient {
                             seqs
                         };
                         for seq in timed_out_seqs {
-                            warn!(seq = seq, "CRITICAL COMMAND TIMEOUT — no ACK received after all retries");
-                            state_send.log_event(format!(
-                                "CRITICAL: Command seq={} not acknowledged after {} retries",
-                                seq, CRITICAL_RETRY_COUNT
-                            )).await;
+                            warn!(
+                                seq = seq,
+                                "CRITICAL COMMAND TIMEOUT — no ACK received after all retries"
+                            );
+                            state_send
+                                .log_event(format!(
+                                    "CRITICAL: Command seq={} not acknowledged after {} retries",
+                                    seq, CRITICAL_RETRY_COUNT
+                                ))
+                                .await;
                             let _ = app_handle_send.emit("command-ack-timeout", seq);
                         }
                     }
@@ -250,15 +268,21 @@ impl PiClient {
                     let was_connected = state_checker.view.read().await.is_connected;
 
                     if was_connected && elapsed > Duration::from_millis(1500) {
-                        warn!(elapsed_ms = elapsed.as_millis(), "Heartbeat lost! No telemetry.");
+                        warn!(
+                            elapsed_ms = elapsed.as_millis(),
+                            "Heartbeat lost! No telemetry."
+                        );
                         {
                             let mut view = state_checker.view.write().await;
                             view.is_connected = false;
                             view.latency_ms = 0;
                         }
-                        state_checker.log_event(
-                            "WARNING: Connection to edge controller lost (heartbeat timeout)".to_string()
-                        ).await;
+                        state_checker
+                            .log_event(
+                                "WARNING: Connection to edge controller lost (heartbeat timeout)"
+                                    .to_string(),
+                            )
+                            .await;
                         let _ = app_handle_checker.emit("connection-status", false);
                     }
                 }
