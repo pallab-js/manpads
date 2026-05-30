@@ -1,28 +1,29 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { sendOperatorCommand } from '../tauri';
 
   let { isConnected = false } = $props<{
     isConnected: boolean;
   }>();
 
-  let holdProgress = $state(0); // 0 to 100
+  let holdProgress = $state(0);
   let isHolding = $state(false);
   let estopTriggered = $state(false);
-  let intervalId: any = null;
+  let intervalId: ReturnType<typeof setInterval> | null = null;
+  let escPressed = $state(false);
 
   function startHolding() {
     if (!isConnected || estopTriggered) return;
     isHolding = true;
     holdProgress = 0;
-    
+
     const startTime = Date.now();
-    const duration = 1500; // 1.5s hold required
+    const duration = 1500;
 
     intervalId = setInterval(() => {
       const elapsed = Date.now() - startTime;
       holdProgress = Math.min(100, (elapsed / duration) * 100);
-      
+
       if (holdProgress >= 100) {
         triggerEstop();
       }
@@ -31,7 +32,7 @@
 
   function stopHolding() {
     isHolding = false;
-    if (intervalId) {
+    if (intervalId !== null) {
       clearInterval(intervalId);
       intervalId = null;
     }
@@ -56,8 +57,29 @@
     holdProgress = 0;
   }
 
+  function onKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && !estopTriggered && isConnected && !escPressed) {
+      escPressed = true;
+      startHolding();
+    }
+  }
+
+  function onKeyUp(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      escPressed = false;
+      stopHolding();
+    }
+  }
+
+  onMount(() => {
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', onKeyUp);
+  });
+
   onDestroy(() => {
-    if (intervalId) clearInterval(intervalId);
+    document.removeEventListener('keydown', onKeyDown);
+    document.removeEventListener('keyup', onKeyUp);
+    if (intervalId !== null) clearInterval(intervalId);
   });
 </script>
 
@@ -68,7 +90,6 @@
 
   {#if !estopTriggered}
     <div class="relative flex flex-col items-center">
-      <!-- Hold button -->
       <button
         onmousedown={startHolding}
         onmouseup={stopHolding}
@@ -77,8 +98,8 @@
         ontouchend={stopHolding}
         disabled={!isConnected}
         class="w-32 h-32 rounded-full border border-status-error/40 flex flex-col items-center justify-center transition duration-150 active:scale-95 disabled:pointer-events-none select-none
-          {isHolding 
-            ? 'bg-status-error text-canvas border-status-error shadow-lvl2' 
+          {isHolding
+            ? 'bg-status-error text-canvas border-status-error shadow-lvl2'
             : 'bg-canvas-elevated text-status-error hover:bg-status-error/10 hover:border-status-error'
           }"
       >
@@ -87,16 +108,14 @@
         <span class="text-[10px] font-mono opacity-60 mt-xs">{isHolding ? 'HOLDING...' : '1.5 SECS'}</span>
       </button>
 
-      <!-- Progress bar -->
       {#if isHolding}
         <div class="absolute -bottom-md w-full bg-canvas border border-hairline h-[6px] rounded-full overflow-hidden">
           <div class="h-full bg-status-error" style="width: {holdProgress}%"></div>
         </div>
       {/if}
+
+      <div class="text-[10px] font-code text-ink-faint mt-lg">[hold or press <kbd class="px-xs py-[1px] bg-canvas-elevated border border-hairline rounded-sm text-ink-mute">Esc</kbd> for 1.5s]</div>
     </div>
-    <p class="text-micro font-mono text-ink-faint max-w-xs mt-sm leading-relaxed">
-      WARNING: Activating emergency shutdown disarms all triggers and locks edge hardware into safety state.
-    </p>
   {:else}
     <div class="w-full flex flex-col items-center space-y-sm">
       <div class="w-16 h-16 rounded-full bg-status-error flex items-center justify-center text-xl animate-bounce">

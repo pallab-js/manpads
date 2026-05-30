@@ -9,7 +9,7 @@ An enterprise-grade, permanently dark-adapted technology demonstration (TD) cont
 
 ## Specifications
 - **Design System**: Supabaze Permanent Dark Theme.
-- **IPC Protocol**: Spec-driven IPC and CBOR message framing with HMAC validation stubs.
+- **IPC Protocol**: Spec-driven IPC and JSON message framing with HMAC validation stubs.
 - **Constraints**: Optimized for low footprint (8GB RAM), throttled to 10Hz, zero atmospheric layout elements.
 
 ## License

@@ -7,6 +7,12 @@ pub struct SensorPoller {
     gps_lng: f64,
 }
 
+impl Default for SensorPoller {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SensorPoller {
     pub fn new() -> Self {
         Self {
@@ -49,7 +55,7 @@ impl SensorPoller {
                 if self.temperature > 38.5 {
                     self.temperature -= 0.2;
                 } else {
-                    self.temperature += (rand_noise() * 0.1);
+                    self.temperature += rand_noise() * 0.1;
                 }
             }
         }
@@ -66,14 +72,6 @@ impl SensorPoller {
     }
 }
 
-/// Simple deterministic random noise helper to avoid external rand crate dependencies
 fn rand_noise() -> f64 {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos();
-    
-    // Convert to a number between -1.0 and 1.0
-    let normalized = (nanos as f64) / 1_000_000_000.0;
-    (normalized * 2.0) - 1.0
+    (rand::random::<f64>() * 2.0) - 1.0
 }

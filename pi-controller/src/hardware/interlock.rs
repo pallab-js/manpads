@@ -4,6 +4,12 @@ pub struct HardwareInterlock {
     pub software_estop: bool,
 }
 
+impl Default for HardwareInterlock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HardwareInterlock {
     pub fn new() -> Self {
         #[cfg(target_os = "linux")]

@@ -1,62 +1,110 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getAppState, onTelemetryUpdate, onConnectionStatusChange, onAckUpdate } from '$lib/tauri';
+  import { getAppState, onTelemetryUpdate, onConnectionStatusChange, onAckUpdate, sendOperatorCommand } from '$lib/tauri';
   import type { TelemetryFrame } from '$lib/types';
-  
+  import { playAlertConnect, playAlertDisconnect, playAlertEstop, playAlertFault, playAlertCommandSent } from '$lib/audio';
+
   import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
   import TelemetryPanel from '$lib/components/TelemetryPanel.svelte';
   import CommandConsole from '$lib/components/CommandConsole.svelte';
   import EmergencyStop from '$lib/components/EmergencyStop.svelte';
   import AuditFeed from '$lib/components/AuditFeed.svelte';
+  import SettingsModal from '$lib/components/SettingsModal.svelte';
+  import ShortcutHud from '$lib/components/ShortcutHud.svelte';
 
-  // Svelte 5 Runes for reactive state
   let isConnected = $state(false);
   let piIp = $state('127.0.0.1:8080');
   let latencyMs = $state(0);
   let lastTelemetry = $state<TelemetryFrame | null>(null);
+  let telemetryHistory = $state<TelemetryFrame[]>([]);
   let auditLog = $state<string[]>([]);
+  let isLoading = $state(true);
+  let showSettings = $state(false);
+  let showShortcuts = $state(false);
 
-  // Derived system state
+  let piIpRaw = $state('127.0.0.1');
+  let piPort = $state(8080);
+  let localPort = $state(8081);
+
   let systemState = $derived(lastTelemetry ? lastTelemetry.systemState : 'off');
+  let wasConnected = $state(false);
+
+  function refreshAuditLog() {
+    getAppState().then((state) => {
+      auditLog = state.auditLog;
+      latencyMs = state.latencyMs;
+      piIpRaw = state.piIp.split(':')[0] || '127.0.0.1';
+      piPort = state.piPort || 8080;
+      localPort = state.localPort || 8081;
+    }).catch(() => {});
+  }
+
+  function onKeyDown(e: KeyboardEvent) {
+    if (e.key === '?' && !e.repeat) {
+      showShortcuts = true;
+    }
+    if ((e.key === 's' || e.key === 'S') && !e.repeat && !(e.target instanceof HTMLInputElement)) {
+      showSettings = true;
+    }
+    if ((e.key === 'a' || e.key === 'A') && !e.repeat && !(e.target instanceof HTMLInputElement)) {
+      sendOperatorCommand('arm').catch(() => {});
+    }
+    if ((e.key === 'd' || e.key === 'D') && !e.repeat && !(e.target instanceof HTMLInputElement)) {
+      sendOperatorCommand('disarm').catch(() => {});
+    }
+    if ((e.key === 'f' || e.key === 'F') && !e.repeat && !(e.target instanceof HTMLInputElement)) {
+      sendOperatorCommand('fire').catch(() => {});
+    }
+  }
 
   onMount(() => {
-    // Initial State Fetch
+    document.addEventListener('keydown', onKeyDown);
+
     getAppState().then((state) => {
       isConnected = state.isConnected;
       piIp = state.piIp;
       latencyMs = state.latencyMs;
       lastTelemetry = state.lastTelemetry;
       auditLog = state.auditLog;
+      piIpRaw = state.piIp.split(':')[0] || '127.0.0.1';
+      piPort = state.piPort || 8080;
+      localPort = state.localPort || 8081;
+      isLoading = false;
     }).catch((err) => {
       console.warn('IPC failed. Running in browser simulation mode:', err);
+      isLoading = false;
     });
 
     let unsubTelemetry: () => void;
     let unsubConn: () => void;
     let unsubAck: () => void;
 
-    // Real-Time Event Listeners
     onTelemetryUpdate((frame) => {
       lastTelemetry = frame;
+      telemetryHistory = [...telemetryHistory.slice(-300), frame];
+      if (!isConnected) playAlertConnect();
       isConnected = true;
+      refreshAuditLog();
+
+      if (frame.faultMask) playAlertFault();
     }).then((un) => unsubTelemetry = un);
 
     onConnectionStatusChange((status) => {
+      if (wasConnected && !status) playAlertDisconnect();
+      wasConnected = status;
       isConnected = status;
       if (!status) {
         latencyMs = 0;
         lastTelemetry = null;
       }
+      refreshAuditLog();
     }).then((un) => unsubConn = un);
 
     onAckUpdate((ack) => {
-      getAppState().then((state) => {
-        auditLog = state.auditLog;
-        latencyMs = state.latencyMs;
-      });
+      refreshAuditLog();
+      if (ack.success) playAlertCommandSent();
     }).then((un) => unsubAck = un);
 
-    // Sync state logs at 1Hz
     const interval = setInterval(() => {
       getAppState().then((state) => {
         auditLog = state.auditLog;
@@ -69,6 +117,7 @@
     }, 1000);
 
     return () => {
+      document.removeEventListener('keydown', onKeyDown);
       if (unsubTelemetry) unsubTelemetry();
       if (unsubConn) unsubConn();
       if (unsubAck) unsubAck();
@@ -82,7 +131,6 @@
 </svelte:head>
 
 <main class="min-h-screen bg-canvas text-ink flex flex-col p-lg md:p-xl space-y-lg select-none">
-  <!-- Header Bar -->
   <header class="flex flex-col md:flex-row items-start md:items-center justify-between border-b border-hairline pb-md space-y-sm md:space-y-0">
     <div>
       <h1 class="text-xs font-mono uppercase tracking-widest text-primary font-bold">Tactical Control Terminal</h1>
@@ -90,7 +138,7 @@
         MANPADS <span class="text-ink-mute">TD-SUITE</span>
       </div>
     </div>
-    
+
     <div class="flex items-center space-x-md font-mono text-micro text-ink-mute bg-canvas-soft border border-hairline px-md py-sm rounded-md shadow-lvl1">
       <div class="flex items-center space-x-xs">
         <span class="inline-block w-xs h-xs rounded-full bg-primary"></span>
@@ -98,30 +146,53 @@
       </div>
       <div class="text-ink-faint">|</div>
       <div>DOM LOCK: <span class="text-status-success font-bold">ACTIVE</span></div>
+      <div class="text-ink-faint">|</div>
+      <button
+        onclick={() => showShortcuts = true}
+        class="text-ink-faint hover:text-ink transition px-xs"
+        title="Keyboard shortcuts (?)"
+      >
+        [?]
+      </button>
+      <button
+        onclick={() => showSettings = true}
+        class="text-ink-faint hover:text-ink transition px-xs"
+        title="Settings (S)"
+      >
+        ⚙
+      </button>
     </div>
   </header>
 
-  <!-- Two Column Layout Grid -->
-  <div class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-lg overflow-hidden">
-    <!-- Left Column: Metrics & Logs (7 / 12) -->
-    <div class="lg:col-span-7 flex flex-col space-y-lg justify-start">
-      <!-- Connection Status Card -->
-      <ConnectionStatus {isConnected} {latencyMs} {piIp} />
-      
-      <!-- Real-time Telemetry Panel -->
-      <TelemetryPanel {lastTelemetry} />
-      
-      <!-- Event Audit log -->
-      <AuditFeed {auditLog} />
+  {#if isLoading}
+    <div class="flex-1 flex items-center justify-center">
+      <div class="flex flex-col items-center space-y-md">
+        <div class="w-sm h-sm border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+        <div class="text-micro font-mono text-ink-faint uppercase tracking-wider">Initializing Control Link...</div>
+      </div>
     </div>
+  {:else}
+    <div class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-lg overflow-hidden">
+      <div class="lg:col-span-7 flex flex-col space-y-lg justify-start">
+        <ConnectionStatus {isConnected} {latencyMs} {piIp} />
+        <TelemetryPanel {lastTelemetry} {telemetryHistory} />
+        <AuditFeed {auditLog} />
+      </div>
 
-    <!-- Right Column: Operator Controls (5 / 12) -->
-    <div class="lg:col-span-5 flex flex-col space-y-lg">
-      <!-- Critical Fire & Safety command console -->
-      <CommandConsole {isConnected} {systemState} />
-      
-      <!-- Emergency lockdown latch -->
-      <EmergencyStop {isConnected} />
+      <div class="lg:col-span-5 flex flex-col space-y-lg">
+        <CommandConsole {isConnected} {systemState} />
+        <EmergencyStop {isConnected} />
+      </div>
     </div>
-  </div>
+  {/if}
 </main>
+
+<SettingsModal
+  show={showSettings}
+  piIp={piIpRaw}
+  {piPort}
+  {localPort}
+  onclose={(saved: boolean) => { showSettings = false; if (saved) refreshAuditLog(); }}
+/>
+
+<ShortcutHud show={showShortcuts} onclose={() => showShortcuts = false} />

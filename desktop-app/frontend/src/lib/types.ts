@@ -28,4 +28,7 @@ export interface AppStateData {
   lastTelemetry: TelemetryFrame | null;
   commandSeq: number;
   auditLog: string[];
+  piPort: number;
+  localPort: number;
+  operatorToken: string;
 }

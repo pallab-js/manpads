@@ -6,6 +6,12 @@ pub struct Actuators {
     pin_relay: Option<rppal::gpio::OutputPin>,
 }
 
+impl Default for Actuators {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Actuators {
     pub fn new() -> Self {
         #[cfg(target_os = "linux")]

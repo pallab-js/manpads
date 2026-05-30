@@ -2,9 +2,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { AppStateData, TelemetryFrame, AckFrame } from './types';
 
-/**
- * Fetch the complete application status and audit logs from Rust.
- */
 export async function getAppState(): Promise<AppStateData> {
   try {
     return await invoke<AppStateData>('get_app_state');
@@ -14,17 +11,12 @@ export async function getAppState(): Promise<AppStateData> {
   }
 }
 
-/**
- * Dispatch an operator command (Arm, Disarm, Fire, Estop) to the Pi.
- */
 export async function sendOperatorCommand(
-  action: 'arm' | 'disarm' | 'fire' | 'estop',
-  authToken: string = 'DEMO-OPERATOR-TOKEN-2026'
+  action: 'arm' | 'disarm' | 'fire' | 'estop'
 ): Promise<number> {
   try {
     return await invoke<number>('send_operator_command', {
       actionStr: action,
-      authToken,
     });
   } catch (error) {
     console.error(`Failed to send operator command (${action}):`, error);
@@ -32,9 +24,14 @@ export async function sendOperatorCommand(
   }
 }
 
-/**
- * Register a listener for real-time 10Hz telemetry frames from the Pi.
- */
+export async function updateSettings(piIp: string, piPort: number, localPort: number): Promise<void> {
+  return invoke<void>('update_settings', { piIp, piPort, localPort });
+}
+
+export async function exportAuditLog(): Promise<string> {
+  return invoke<string>('export_audit_log');
+}
+
 export async function onTelemetryUpdate(
   callback: (frame: TelemetryFrame) => void
 ): Promise<() => void> {
@@ -44,9 +41,6 @@ export async function onTelemetryUpdate(
   return unlisten;
 }
 
-/**
- * Register a listener for heartbeats and connection change state transitions.
- */
 export async function onConnectionStatusChange(
   callback: (isConnected: boolean) => void
 ): Promise<() => void> {
@@ -56,9 +50,6 @@ export async function onConnectionStatusChange(
   return unlisten;
 }
 
-/**
- * Register a listener for command ACK packets.
- */
 export async function onAckUpdate(
   callback: (ack: AckFrame) => void
 ): Promise<() => void> {

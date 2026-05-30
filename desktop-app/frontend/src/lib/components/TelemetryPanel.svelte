@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { TelemetryFrame, SystemState } from '../types';
+  import TelemetryChart from './TelemetryChart.svelte';
 
-  let { lastTelemetry = null } = $props<{
+  let { lastTelemetry = null, telemetryHistory = [] as TelemetryFrame[] } = $props<{
     lastTelemetry: TelemetryFrame | null;
+    telemetryHistory?: TelemetryFrame[];
   }>();
 
-  // Helper to decode the fault mask bitfield
   function decodeFaults(mask: number): string[] {
     const list: string[] = [];
     if (mask & 1) list.push('WATCHDOG_TIMEOUT');
@@ -15,7 +16,6 @@
     return list;
   }
 
-  // Helper to style system states
   function getStateBadgeClass(state: SystemState): string {
     switch (state) {
       case 'off': return 'bg-ink-faint/20 text-ink-mute border-ink-faint';
@@ -26,20 +26,20 @@
       default: return 'bg-ink-faint/20 text-ink-mute border-ink-faint';
     }
   }
+
+  let batteryHistory = $derived(telemetryHistory.map((f: TelemetryFrame) => f.batteryVoltage));
+  let tempHistory = $derived(telemetryHistory.map((f: TelemetryFrame) => f.temperature));
 </script>
 
 <div class="grid grid-cols-1 md:grid-cols-2 gap-lg p-lg bg-canvas-soft border border-hairline rounded-lg shadow-lvl1">
-  <!-- Left Side: System Metrics -->
   <div class="space-y-md">
     <h3 class="text-xs font-mono uppercase tracking-wider text-ink-mute border-b border-hairline pb-xs">Edge Telemetry</h3>
-    
+
     <div class="grid grid-cols-2 gap-md">
-      <!-- Battery Status -->
       <div class="p-md bg-canvas-elevated border border-hairline rounded-md">
         <div class="text-micro font-mono text-ink-faint uppercase">Battery Pack</div>
         {#if lastTelemetry}
           <div class="text-body-md font-bold text-ink mt-xxs">{lastTelemetry.batteryVoltage.toFixed(1)} V</div>
-          <!-- Battery bar visualization (nominal 10V-14V) -->
           {@const percent = Math.max(0, Math.min(100, ((lastTelemetry.batteryVoltage - 10) / 4) * 100))}
           <div class="w-full bg-canvas-soft h-[3px] rounded-full mt-sm overflow-hidden">
             <div class="h-full bg-primary" style="width: {percent}%"></div>
@@ -48,10 +48,8 @@
           <div class="text-body-md font-bold text-ink-faint mt-xxs">--</div>
         {/if}
       </div>
-
-      <!-- Temperature Status -->
       <div class="p-md bg-canvas-elevated border border-hairline rounded-md">
-        <div class="text-micro font-mono text-ink-faint uppercase">Edge Temp</div>
+        <div class="text-micro font-mono text-ink-faint uppercase">Controller Temp</div>
         {#if lastTelemetry}
           {@const isHigh = lastTelemetry.temperature > 65}
           <div class="text-body-md font-bold mt-xxs {isHigh ? 'text-status-error' : 'text-ink'}">
@@ -66,7 +64,6 @@
       </div>
     </div>
 
-    <!-- GPS Location Data -->
     <div class="p-md bg-canvas-elevated border border-hairline rounded-md">
       <div class="text-micro font-mono text-ink-faint uppercase">GPS Tracker (L1/L2)</div>
       {#if lastTelemetry}
@@ -78,13 +75,19 @@
         <div class="text-xs font-code text-ink-faint mt-xs">GPS LINK OFFLINE</div>
       {/if}
     </div>
+
+    {#if batteryHistory.length > 1}
+      <div class="space-y-sm">
+        <TelemetryChart data={batteryHistory} color="#3ecf8e" min={10} max={14} height={32} label="Battery History (V)" />
+        <TelemetryChart data={tempHistory} color="#ff2201" min={30} max={85} height={32} label="Temperature History (°C)" />
+      </div>
+    {/if}
   </div>
 
-  <!-- Right Side: System State & Diagnostics -->
   <div class="space-y-md flex flex-col justify-between">
     <div>
       <h3 class="text-xs font-mono uppercase tracking-wider text-ink-mute border-b border-hairline pb-xs">Status & Safety</h3>
-      
+
       <div class="flex items-center justify-between mt-md">
         <span class="text-xs font-mono text-ink-mute">Current State:</span>
         {#if lastTelemetry}
@@ -99,7 +102,6 @@
       </div>
     </div>
 
-    <!-- Diagnostics Console -->
     <div class="p-md bg-canvas-elevated border border-hairline rounded-md flex-1 mt-md min-h-[90px]">
       <div class="text-micro font-mono text-ink-faint uppercase mb-xs">Diagnostic Alarms</div>
       {#if lastTelemetry}

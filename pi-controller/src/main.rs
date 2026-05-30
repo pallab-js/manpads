@@ -1,14 +1,17 @@
-use std::net::SocketAddr;
+use std::net::{SocketAddr, Ipv4Addr, IpAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use tracing::{info, warn, error};
 
-use pi_controller::network::protocol::{CommandPayload, TelemetryFrame, AckFrame, SystemState, CommandAction};
+use pi_controller::network::protocol::{CommandPayload, TelemetryFrame, AckFrame, SystemState, CommandAction, SignedMessage};
 use pi_controller::hardware::sensors::SensorPoller;
 use pi_controller::hardware::actuators::Actuators;
 use pi_controller::hardware::interlock::HardwareInterlock;
+use pi_controller::handler::apply_state_transition;
+
+const DESKTOP_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081);
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -41,6 +44,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let last_command_seq = Arc::new(Mutex::new(0u64));
     let last_command_seq_recv = last_command_seq.clone();
 
+    let operator_token = std::env::var("MANPADS_OPERATOR_TOKEN")
+        .unwrap_or_else(|_| "DEMO-OPERATOR-TOKEN-2026".to_string());
+
     // Keep track of the last time a valid command was received (watchdog system)
     let last_command_time = Arc::new(Mutex::new(Instant::now()));
     let last_command_time_recv = last_command_time.clone();
@@ -51,14 +57,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut buf = [0; 65535];
         loop {
             match socket.recv_from(&mut buf).await {
-                Ok((len, src)) => {
+                Ok((len, _src)) => {
                     let data = &buf[..len];
                     let raw_str = match std::str::from_utf8(data) {
                         Ok(s) => s,
                         Err(_) => continue,
                     };
 
-                    let mut cmd = match CommandPayload::from_json(raw_str) {
+                    let cmd = match CommandPayload::from_json(raw_str) {
                         Ok(c) => c,
                         Err(e) => {
                             warn!("Failed to parse command frame JSON: {}", e);
@@ -66,14 +72,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     };
 
-                    // 1. Signature stub verification
                     if !cmd.verify_signature() {
                         warn!("Signature verification failed! Discarding packet.");
                         continue;
                     }
 
-                    // 1b. Operator Session Token verification (TD Safeguard)
-                    if cmd.auth_token != "DEMO-OPERATOR-TOKEN-2026" {
+                    if cmd.auth_token != operator_token {
                         warn!("Access Denied: Invalid operator token! seq={}", cmd.seq);
                         let ack_timestamp = SystemTime::now()
                             .duration_since(UNIX_EPOCH)
@@ -89,14 +93,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         };
                         ack.sign();
                         if let Ok(serialized) = ack.to_json() {
-                            let dest: SocketAddr = "127.0.0.1:8081".parse().unwrap();
-                            let _ = socket.send_to(serialized.as_bytes(), &dest).await;
+                            let _ = socket.send_to(serialized.as_bytes(), &DESKTOP_ADDR).await;
                         }
                         continue;
                     }
 
-
-                    // 2. Sequence verification
                     let mut seq_ok = false;
                     {
                         let mut last_seq = last_command_seq_recv.lock().await;
@@ -111,55 +112,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         continue;
                     }
 
-                    // Feed watchdog
                     *last_command_time_recv.lock().await = Instant::now();
 
-                    // Evaluate commands
-                    let mut success = true;
                     let mut err_msg = String::new();
+                    let mut transition_success = true;
 
-                    // Check if ESTOP active
                     let is_estop = interlock_recv.lock().await.is_estop_active();
                     if is_estop && cmd.action != CommandAction::Estop && cmd.action != CommandAction::Disarm {
-                        success = false;
                         err_msg = "BLOCKED: Safety E-STOP interlock active".to_string();
+                        transition_success = false;
                     } else {
                         let mut state = system_state_recv.lock().await;
-                        match cmd.action {
-                            CommandAction::Arm => {
-                                if *state == SystemState::Safe {
-                                    *state = SystemState::Armed;
-                                    actuators_recv.lock().await.set_state(SystemState::Armed);
-                                    info!("System Armed successfully");
-                                } else {
-                                    success = false;
-                                    err_msg = "Invalid transition: Must be SAFE to ARM".to_string();
-                                }
+                        let (new_state, transition_err) = apply_state_transition(*state, cmd.action);
+                        if transition_err.is_empty() {
+                            *state = new_state;
+                            let mut act = actuators_recv.lock().await;
+                            act.set_state(new_state);
+                            match cmd.action {
+                                CommandAction::Fire => act.trigger_fire(),
+                                CommandAction::Disarm => { interlock_recv.lock().await.software_estop = false; }
+                                CommandAction::Estop => { interlock_recv.lock().await.software_estop = true; }
+                                _ => {}
                             }
-                            CommandAction::Disarm => {
-                                *state = SystemState::Safe;
-                                actuators_recv.lock().await.set_state(SystemState::Safe);
-                                // Clear software interlock on explicit disarm
-                                interlock_recv.lock().await.software_estop = false;
-                                info!("System Disarmed successfully");
-                            }
-                            CommandAction::Fire => {
-                                if *state == SystemState::Armed {
-                                    *state = SystemState::Active;
-                                    actuators_recv.lock().await.set_state(SystemState::Active);
-                                    actuators_recv.lock().await.trigger_fire();
-                                    info!("🔥 FIRE COMMAND INITIATED!");
-                                } else {
-                                    success = false;
-                                    err_msg = "CRITICAL: System must be ARMED to Fire".to_string();
-                                }
-                            }
-                            CommandAction::Estop => {
-                                *state = SystemState::Emergency;
-                                actuators_recv.lock().await.set_state(SystemState::Emergency);
-                                interlock_recv.lock().await.software_estop = true;
-                                warn!("🚨 EMERGENCY ESTOP PRESSED!");
-                            }
+                            drop(act);
+                        } else {
+                            err_msg = transition_err;
+                            transition_success = false;
                         }
                     }
 
@@ -173,15 +151,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         seq: cmd.seq,
                         timestamp_ms: ack_timestamp,
                         command_seq: cmd.seq,
-                        success,
+                        success: transition_success,
                         error_msg: err_msg,
                         hmac: String::new(),
                     };
                     ack.sign();
 
                     if let Ok(serialized) = ack.to_json() {
-                        let dest: SocketAddr = "127.0.0.1:8081".parse().unwrap();
-                        let _ = socket.send_to(serialized.as_bytes(), &dest).await;
+                        let _ = socket.send_to(serialized.as_bytes(), &DESKTOP_ADDR).await;
                     }
                 }
                 Err(e) => {
@@ -194,7 +171,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Task B: Periodic Telemetry Broadcast loop at 10Hz (100ms) to Laptop 8081
     let local_socket_send = socket_send.clone();
     tokio::spawn(async move {
-        let dest: SocketAddr = "127.0.0.1:8081".parse().unwrap();
         let mut telemetry_seq = 0u64;
 
         loop {
@@ -232,7 +208,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             frame.sign();
 
             if let Ok(serialized) = frame.to_json() {
-                let _ = local_socket_send.send_to(serialized.as_bytes(), &dest).await;
+                let _ = local_socket_send.send_to(serialized.as_bytes(), &DESKTOP_ADDR).await;
             }
         }
     });
