@@ -1,0 +1,18 @@
+schema: openspec-default
+context:
+  project: "MANPADS TD Control Suite"
+  architecture: "Laptop Tauri client ↔ WiFi/Ethernet ↔ Raspberry Pi Rust controller"
+  operator: "Single-user control-panel dashboard"
+  design: "Supabaze (Permanent Dark Adaptation)"
+  constraints:
+    - "Enforce permanent dark mode at DOM root + MutationObserver"
+    - "8GB RAM: throttle UI to 10Hz, lazy-load routes, minimal deps"
+    - "Network: MQTT/UDP with seq + HMAC (TD stubs only)"
+    - "Safety: hardware GPIO E-Stop + software interlock + watchdog"
+  ai_tool: "OpenCode (vibecoding)"
+rules:
+  - "All IPC/network contracts defined in Rust/Svelte before implementation"
+  - "Use approved crates only: tauri, serde, tokio, tracing, thiserror, anyhow, rumqttc, serde_cbor, rppal"
+  - "Flag TD-only code with // TD-ONLY comments"
+  - "Run cargo check + pnpm typecheck + openspec validate before commit"
+  - "Never invent APIs, plugins, or crypto beyond spec"

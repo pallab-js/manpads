@@ -1,0 +1,30 @@
+# Rust target directories
+/target/
+**/target/
+
+# Node/Svelte dependencies & build directories
+node_modules/
+**/node_modules/
+.svelte-kit/
+**/dist/
+**/build/
+**/.svelte-kit/
+
+# Tauri build outputs
+/desktop-app/src-tauri/target/
+
+# Platform files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local environment variables
+.env
+.env.*
+!.env.example

@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: #0f0f0f;
+  --color-canvas-soft: #141414;
+  --color-canvas-elevated: #1c1c1c;
+
+  --color-ink: #f5f5f5;
+  --color-ink-secondary: #e5e5e5;
+  --color-ink-mute: #a3a3a3;
+  --color-ink-mute2: #737373;
+  --color-ink-faint: #525252;
+
+  --color-primary: #3ecf8e;
+  --color-primary-deep: #24b47e;
+  --color-primary-soft: #4ade80;
+  --color-primary-on: #0f0f0f;
+
+  --color-hairline: #2a2a2a;
+  --color-hairline-strong: #404040;
+  --color-hairline-cool: #262626;
+
+  --color-status-success: #3ecf8e;
+  --color-status-warning: #ffdb13;
+  --color-status-error: #ff2201;
+  --color-status-info: #054cff;
+
+  --font-display: 'Inter', 'Circular', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-code: ui-monospace, Menlo, Consolas, monospace;
+
+  --font-size-display-xxl: 64px;
+  --font-size-display-xl: 48px;
+  --font-size-button-md: 14px;
+  --font-size-body-md: 16px;
+  --font-size-micro: 12px;
+
+  --spacing-xxs: 2px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-xxl: 32px;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --shadow-lvl1: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-lvl2: 0 8px 24px rgba(0,0,0,0.4);
+}

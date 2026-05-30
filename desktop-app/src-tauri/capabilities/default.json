@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/capability-schema.json",
+  "identifier": "default",
+  "description": "Default permissions for MANPADS control suite",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open"
+  ]
+}
