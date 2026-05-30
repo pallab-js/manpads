@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::select! {
             res = socket.recv_from(&mut buf) => {
                 if let Ok((len, _src)) = res {
-                    if rand::random::<u64>() % 20 == 0 {
+                    if rand::random::<u64>().is_multiple_of(20) {
                         warn!("SIMULATOR: Packet dropped (simulating EMI loss).");
                         continue;
                     }
