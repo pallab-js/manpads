@@ -24,11 +24,17 @@ export interface AckFrame {
 export interface AppStateData {
   isConnected: boolean;
   piIp: string;
-  latencyMs: number;
-  lastTelemetry: TelemetryFrame | null;
-  commandSeq: number;
-  auditLog: string[];
   piPort: number;
   localPort: number;
-  operatorToken: string;
+  latencyMs: number;
+  lastTelemetry: TelemetryFrame | null;
+  auditLog: string[];
 }
+
+export const FaultFlags = {
+  WATCHDOG_TIMEOUT: 1 << 0,
+  GPIO_INTERLOCK_ERR: 1 << 1,
+  THERMAL_CRITICAL: 1 << 2,
+  BATTERY_LOW: 1 << 3,
+  GPS_STALE: 1 << 4,
+} as const;

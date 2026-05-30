@@ -1,5 +1,5 @@
 <script lang="ts">
-  let { isConnected = false, latencyMs = 0, piIp = '127.0.0.1:8080' } = $props<{
+  let { isConnected = false, latencyMs = 0, piIp = '127.0.0.1' } = $props<{
     isConnected: boolean;
     latencyMs: number;
     piIp: string;

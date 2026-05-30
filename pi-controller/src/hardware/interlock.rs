@@ -1,7 +1,7 @@
 pub struct HardwareInterlock {
     #[cfg(target_os = "linux")]
     pin_estop: Option<rppal::gpio::InputPin>,
-    pub software_estop: bool,
+    software_estop: bool,
 }
 
 impl Default for HardwareInterlock {
@@ -29,7 +29,6 @@ impl HardwareInterlock {
         }
     }
 
-    /// Evaluates if an Emergency Stop condition is met (either software flag or hardware GPIO Pin 26 grounded).
     pub fn is_estop_active(&self) -> bool {
         if self.software_estop {
             return true;
@@ -37,10 +36,19 @@ impl HardwareInterlock {
         #[cfg(target_os = "linux")]
         {
             if let Some(pin) = &self.pin_estop {
-                // Grounded pin indicates physical switch is closed (pressed)
                 return pin.is_low();
             }
         }
         false
+    }
+
+    pub fn activate_software_estop(&mut self) {
+        tracing::warn!("SOFTWARE E-STOP ACTIVATED");
+        self.software_estop = true;
+    }
+
+    pub fn clear_software_estop(&mut self) {
+        tracing::info!("Software E-STOP cleared");
+        self.software_estop = false;
     }
 }

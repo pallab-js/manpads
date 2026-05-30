@@ -27,8 +27,8 @@
     onclick={onclose}
     onkeydown={(e) => { if (e.key === 'Escape') onclose(); }}
   >
-    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
     <div
+      role="none"
       class="bg-canvas-soft border border-hairline rounded-xl shadow-lvl2 w-full max-w-[420px] mx-4"
       onclick={(e) => e.stopPropagation()}
     >

@@ -1,0 +1,21 @@
+[Unit]
+Description=MANPADS Edge Controller Daemon
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/manpads
+ExecStart=/home/pi/manpads/pi-controller
+EnvironmentFile=/home/pi/manpads/.env
+Restart=on-failure
+RestartSec=2s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=manpads-controller
+KillSignal=SIGTERM
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -11,9 +11,10 @@
   import AuditFeed from '$lib/components/AuditFeed.svelte';
   import SettingsModal from '$lib/components/SettingsModal.svelte';
   import ShortcutHud from '$lib/components/ShortcutHud.svelte';
+  import FireConfirmModal from '$lib/components/FireConfirmModal.svelte';
 
   let isConnected = $state(false);
-  let piIp = $state('127.0.0.1:8080');
+  let piIp = $state('127.0.0.1');
   let latencyMs = $state(0);
   let lastTelemetry = $state<TelemetryFrame | null>(null);
   let telemetryHistory = $state<TelemetryFrame[]>([]);
@@ -21,6 +22,7 @@
   let isLoading = $state(true);
   let showSettings = $state(false);
   let showShortcuts = $state(false);
+  let showFireConfirm = $state(false);
 
   let piIpRaw = $state('127.0.0.1');
   let piPort = $state(8080);
@@ -29,14 +31,26 @@
   let systemState = $derived(lastTelemetry ? lastTelemetry.systemState : 'off');
   let wasConnected = $state(false);
 
+  function appendLocalAuditEvent(msg: string) {
+    const timestamp = Date.now();
+    auditLog = [...auditLog, `[${timestamp}] ${msg}`];
+    if (auditLog.length > 100) {
+      auditLog = auditLog.slice(-100);
+    }
+  }
+
   function refreshAuditLog() {
     getAppState().then((state) => {
       auditLog = state.auditLog;
       latencyMs = state.latencyMs;
-      piIpRaw = state.piIp.split(':')[0] || '127.0.0.1';
+      piIpRaw = state.piIp;
       piPort = state.piPort || 8080;
       localPort = state.localPort || 8081;
-    }).catch(() => {});
+    }).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLocalAuditEvent(`ERROR: ${msg}`);
+      console.error('Failed to get app state:', err);
+    });
   }
 
   function onKeyDown(e: KeyboardEvent) {
@@ -47,13 +61,21 @@
       showSettings = true;
     }
     if ((e.key === 'a' || e.key === 'A') && !e.repeat && !(e.target instanceof HTMLInputElement)) {
-      sendOperatorCommand('arm').catch(() => {});
+      sendOperatorCommand('arm').catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        appendLocalAuditEvent(`ERROR: ${msg}`);
+        console.error('Arm command failed:', err);
+      });
     }
     if ((e.key === 'd' || e.key === 'D') && !e.repeat && !(e.target instanceof HTMLInputElement)) {
-      sendOperatorCommand('disarm').catch(() => {});
+      sendOperatorCommand('disarm').catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        appendLocalAuditEvent(`ERROR: ${msg}`);
+        console.error('Disarm command failed:', err);
+      });
     }
     if ((e.key === 'f' || e.key === 'F') && !e.repeat && !(e.target instanceof HTMLInputElement)) {
-      sendOperatorCommand('fire').catch(() => {});
+      showFireConfirm = true;
     }
   }
 
@@ -66,7 +88,7 @@
       latencyMs = state.latencyMs;
       lastTelemetry = state.lastTelemetry;
       auditLog = state.auditLog;
-      piIpRaw = state.piIp.split(':')[0] || '127.0.0.1';
+      piIpRaw = state.piIp;
       piPort = state.piPort || 8080;
       localPort = state.localPort || 8081;
       isLoading = false;
@@ -113,7 +135,10 @@
           isConnected = state.isConnected;
           latencyMs = state.latencyMs;
         }
-      }).catch(() => {});
+      }).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('Poll failed:', msg);
+      });
     }, 1000);
 
     return () => {
@@ -193,6 +218,19 @@
   {piPort}
   {localPort}
   onclose={(saved: boolean) => { showSettings = false; if (saved) refreshAuditLog(); }}
+/>
+
+<FireConfirmModal
+  show={showFireConfirm}
+  onconfirm={() => {
+    showFireConfirm = false;
+    sendOperatorCommand('fire').catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLocalAuditEvent(`ERROR: ${msg}`);
+      console.error('Fire command failed:', err);
+    });
+  }}
+  oncancel={() => { showFireConfirm = false; }}
 />
 
 <ShortcutHud show={showShortcuts} onclose={() => showShortcuts = false} />

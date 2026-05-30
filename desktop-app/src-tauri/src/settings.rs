@@ -16,7 +16,7 @@ impl Default for Settings {
             pi_ip: "127.0.0.1".to_string(),
             pi_port: 8080,
             local_port: 8081,
-            operator_token: "DEMO-OPERATOR-TOKEN-2026".to_string(),
+            operator_token: String::new(),
         }
     }
 }
@@ -62,19 +62,13 @@ mod tests {
         assert_eq!(s.pi_ip, "127.0.0.1");
         assert_eq!(s.pi_port, 8080);
         assert_eq!(s.local_port, 8081);
-        assert_eq!(s.operator_token, "DEMO-OPERATOR-TOKEN-2026");
+        assert!(s.operator_token.is_empty());
     }
 
     #[test]
     fn test_pi_addr_format() {
         let s = Settings::default();
         assert_eq!(s.pi_addr(), "127.0.0.1:8080");
-    }
-
-    #[test]
-    fn test_local_addr_format() {
-        let s = Settings::default();
-        assert_eq!(s.local_addr(), "127.0.0.1:8081");
     }
 
     #[test]

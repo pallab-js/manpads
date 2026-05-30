@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::Emitter;
 use tokio::net::UdpSocket;
@@ -6,7 +6,23 @@ use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
 use crate::state::AppState;
-use pi_controller::network::protocol::{AckFrame, CommandPayload, SignedMessage, TelemetryFrame};
+use pi_controller::network::protocol::{AckFrame, CommandAction, CommandPayload, SignedMessage, TelemetryFrame};
+
+const CRITICAL_RETRY_COUNT: usize = 3;
+const CRITICAL_RETRY_INTERVAL_MS: u64 = 200;
+
+struct PendingCritical {
+    payload: CommandPayload,
+    sent_at: Instant,
+    retries_remaining: usize,
+}
+
+impl PendingCritical {
+    fn needs_retry(&self, now: Instant) -> bool {
+        now.duration_since(self.sent_at) >= Duration::from_millis(CRITICAL_RETRY_INTERVAL_MS)
+            && self.retries_remaining > 0
+    }
+}
 
 pub struct PiClient {
     pub pi_addr: String,
@@ -45,143 +61,206 @@ impl PiClient {
 
             info!("Starting Pi UDP client on local {}", local_addr);
 
-            let socket_recv = socket.clone();
-            let socket_send = socket.clone();
-            let state_recv = state.clone();
-            let app_handle_recv = app_handle.clone();
-            let last_telemetry_time = Arc::new(Mutex::new(Instant::now()));
-            let last_telemetry_time_checker = last_telemetry_time.clone();
-            let state_checker = state.clone();
-            let app_handle_checker = app_handle.clone();
+            let last_telemetry_time = Arc::new(std::sync::Mutex::new(Instant::now()));
 
-            let pending_commands =
-                Arc::new(Mutex::new(std::collections::HashMap::<u64, Instant>::new()));
-            let pending_commands_send = pending_commands.clone();
-            let pending_commands_recv = pending_commands.clone();
+            let pending_critical: Arc<std::sync::Mutex<Vec<PendingCritical>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
 
             // Task A: Recv loop
-            tokio::spawn(async move {
-                let mut buf = [0; 65535];
-                loop {
-                    match socket_recv.recv_from(&mut buf).await {
-                        Ok((len, src)) => {
-                            let data = &buf[..len];
-                            let raw_str = match std::str::from_utf8(data) {
-                                Ok(s) => s,
-                                Err(_) => continue,
-                            };
+            {
+                let socket_recv = socket.clone();
+                let state_recv = state.clone();
+                let app_handle_recv = app_handle.clone();
+                let telemetry_time = last_telemetry_time.clone();
+                let pending = pending_critical.clone();
+                tokio::spawn(async move {
+                    let mut buf = [0; 65535];
+                    loop {
+                        match socket_recv.recv_from(&mut buf).await {
+                            Ok((len, src)) => {
+                                let data = &buf[..len];
+                                let raw_str = match std::str::from_utf8(data) {
+                                    Ok(s) => s,
+                                    Err(_) => continue,
+                                };
 
-                            if let Ok(frame) = TelemetryFrame::from_json(raw_str) {
-                                if !frame.verify_signature() {
-                                    warn!(
-                                        "Signature mismatch on Telemetry frame! Discarding packet."
-                                    );
-                                    continue;
-                                }
-
-                                if let Ok(mut lock) = last_telemetry_time.lock() {
-                                    *lock = Instant::now();
-                                }
-
-                                let mut is_new_conn = false;
-                                if let Ok(mut d) = state_recv.data.lock() {
-                                    if !d.is_connected {
-                                        d.is_connected = true;
-                                        is_new_conn = true;
+                                if let Ok(frame) = TelemetryFrame::from_json(raw_str) {
+                                    if !frame.verify_signature() {
+                                        warn!("Signature mismatch on Telemetry frame");
+                                        continue;
                                     }
-                                    d.last_telemetry = Some(frame.clone());
-                                }
 
-                                if is_new_conn {
+                                    if let Ok(mut lock) = telemetry_time.lock() {
+                                        *lock = Instant::now();
+                                    }
+
+                                    let mut is_new_conn = false;
+                                    {
+                                        let mut d = state_recv.view.write().await;
+                                        if !d.is_connected {
+                                            d.is_connected = true;
+                                            is_new_conn = true;
+                                        }
+                                        d.last_telemetry = Some(frame.clone());
+                                    }
+
+                                    if is_new_conn {
+                                        state_recv.log_event(format!(
+                                            "Connected to Edge Controller at {}",
+                                            src
+                                        )).await;
+                                        let _ = app_handle_recv.emit("connection-status", true);
+                                    }
+
+                                    let _ = app_handle_recv.emit("telemetry-update", frame);
+                                } else if let Ok(ack) = AckFrame::from_json(raw_str) {
+                                    if !ack.verify_signature() {
+                                        warn!("Signature mismatch on ACK frame");
+                                        continue;
+                                    }
+
+                                    {
+                                        let mut pc = pending.lock().unwrap();
+                                        pc.retain(|p| p.payload.seq != ack.command_seq);
+                                    }
+
+                                    {
+                                        let mut view = state_recv.view.write().await;
+                                        view.latency_ms = 0;
+                                    }
+
                                     state_recv.log_event(format!(
-                                        "Connected to Edge Controller at {}",
-                                        src
-                                    ));
-                                    let _ = app_handle_recv.emit("connection-status", true);
+                                        "ACK received for Cmd seq={}: success={}, latency={}ms",
+                                        ack.command_seq, ack.success, 0u64
+                                    )).await;
+
+                                    let _ = app_handle_recv.emit("ack-update", ack);
                                 }
-
-                                let _ = app_handle_recv.emit("telemetry-update", frame);
-                            } else if let Ok(ack) = AckFrame::from_json(raw_str) {
-                                if !ack.verify_signature() {
-                                    warn!("Signature mismatch on ACK frame! Discarding.");
-                                    continue;
-                                }
-
-                                let mut rtt = 0;
-                                if let Ok(mut pending) = pending_commands_recv.lock() {
-                                    if let Some(sent_time) = pending.remove(&ack.command_seq) {
-                                        rtt = sent_time.elapsed().as_millis() as u64;
-                                    }
-                                }
-
-                                if let Ok(mut d) = state_recv.data.lock() {
-                                    d.latency_ms = rtt;
-                                }
-
-                                state_recv.log_event(format!(
-                                    "ACK received for Cmd seq={}: success={}, latency={}ms",
-                                    ack.command_seq, ack.success, rtt
-                                ));
-
-                                let _ = app_handle_recv.emit("ack-update", ack);
-                            }
-                        }
-                        Err(e) => {
-                            error!("UDP socket receive error: {}", e);
-                            tokio::time::sleep(Duration::from_millis(100)).await;
-                        }
-                    }
-                }
-            });
-
-            // Task B: Send loop
-            tokio::spawn(async move {
-                while let Some(mut cmd) = cmd_rx.recv().await {
-                    cmd.sign();
-                    if let Ok(serialized) = cmd.to_json() {
-                        if let Ok(mut pending) = pending_commands_send.lock() {
-                            pending.insert(cmd.seq, Instant::now());
-                        }
-
-                        match socket_send.send_to(serialized.as_bytes(), &pi_addr).await {
-                            Ok(_) => {
-                                tracing::debug!("Sent command seq={} to {}", cmd.seq, pi_addr);
                             }
                             Err(e) => {
-                                error!("Failed to send command over UDP: {}", e);
+                                error!(error = %e, "UDP socket receive error");
+                                tokio::time::sleep(Duration::from_millis(100)).await;
                             }
                         }
                     }
-                }
-            });
+                });
+            }
 
-            // Task C: Watchdog Connection Checker (Heartbeat monitor)
-            loop {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                let elapsed = last_telemetry_time_checker
-                    .lock()
-                    .map(|l| l.elapsed())
-                    .unwrap_or(Duration::from_secs(10));
-                let mut was_connected = false;
+            // Task B: Send loop with critical command retry
+            {
+                let socket_send = socket.clone();
+                let state_send = state.clone();
+                let app_handle_send = app_handle.clone();
+                let pending = pending_critical.clone();
+                tokio::spawn(async move {
+                    loop {
+                        // Check for critical command retries
+                        let retry_cmds: Vec<CommandPayload> = {
+                            let mut pc = pending.lock().unwrap();
+                            let now = Instant::now();
+                            let mut to_retry = Vec::new();
+                            for p in pc.iter_mut() {
+                                if p.needs_retry(now) {
+                                    let mut cmd = p.payload.clone();
+                                    cmd.sign();
+                                    to_retry.push(cmd);
+                                    p.retries_remaining -= 1;
+                                    p.sent_at = now;
+                                    warn!(seq = p.payload.seq, retries_left = p.retries_remaining, "Retrying critical command");
+                                }
+                            }
+                            to_retry
+                        };
+                        for cmd in retry_cmds {
+                            if let Ok(serialized) = cmd.to_json() {
+                                let _ = socket_send.send_to(serialized.as_bytes(), &pi_addr).await;
+                            }
+                        }
 
-                if let Ok(d) = state_checker.data.lock() {
-                    was_connected = d.is_connected;
-                }
+                        tokio::select! {
+                            cmd = cmd_rx.recv() => {
+                                let mut cmd = match cmd {
+                                    Some(c) => c,
+                                    None => break,
+                                };
 
-                if was_connected && elapsed > Duration::from_millis(1500) {
-                    warn!(
-                        "Heartbeat lost! No telemetry for {}ms.",
-                        elapsed.as_millis()
-                    );
-                    if let Ok(mut d) = state_checker.data.lock() {
-                        d.is_connected = false;
-                        d.latency_ms = 0;
+                                let is_critical = matches!(cmd.action, CommandAction::Fire | CommandAction::Estop);
+
+                                cmd.sign();
+                                if let Ok(serialized) = cmd.to_json() {
+                                    match socket_send.send_to(serialized.as_bytes(), &pi_addr).await {
+                                        Ok(_) => {
+                                            tracing::debug!("Sent command seq={} to {}", cmd.seq, pi_addr);
+                                            if is_critical {
+                                                pending.lock().unwrap().push(PendingCritical {
+                                                    payload: cmd,
+                                                    sent_at: Instant::now(),
+                                                    retries_remaining: CRITICAL_RETRY_COUNT,
+                                                });
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!(error = %e, "Failed to send command over UDP");
+                                        }
+                                    }
+                                }
+                            }
+                            _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+                        }
+
+                        // Emit timeout for commands that exhausted all retries
+                        let timed_out_seqs: Vec<u64> = {
+                            let mut pc = pending.lock().unwrap();
+                            let now = Instant::now();
+                            let mut seqs = Vec::new();
+                            pc.retain(|p| {
+                                let total_timeout = Duration::from_millis(
+                                    (CRITICAL_RETRY_COUNT as u64) * CRITICAL_RETRY_INTERVAL_MS
+                                );
+                                if now.duration_since(p.sent_at) > total_timeout && p.retries_remaining == 0 {
+                                    seqs.push(p.payload.seq);
+                                    return false;
+                                }
+                                true
+                            });
+                            seqs
+                        };
+                        for seq in timed_out_seqs {
+                            warn!(seq = seq, "CRITICAL COMMAND TIMEOUT — no ACK received after all retries");
+                            state_send.log_event(format!(
+                                "CRITICAL: Command seq={} not acknowledged after {} retries",
+                                seq, CRITICAL_RETRY_COUNT
+                            )).await;
+                            let _ = app_handle_send.emit("command-ack-timeout", seq);
+                        }
                     }
-                    state_checker.log_event(
-                        "WARNING: Connection to edge controller lost (heartbeat timeout)"
-                            .to_string(),
-                    );
-                    let _ = app_handle_checker.emit("connection-status", false);
+                });
+            }
+
+            // Task C: Watchdog Connection Checker
+            {
+                let state_checker = state.clone();
+                let app_handle_checker = app_handle.clone();
+                let telemetry_time_checker = last_telemetry_time.clone();
+                loop {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    let elapsed = telemetry_time_checker
+                        .lock()
+                        .map(|l| l.elapsed())
+                        .unwrap_or(Duration::from_secs(10));
+                    let was_connected = state_checker.view.read().await.is_connected;
+
+                    if was_connected && elapsed > Duration::from_millis(1500) {
+                        warn!(elapsed_ms = elapsed.as_millis(), "Heartbeat lost! No telemetry.");
+                        {
+                            let mut view = state_checker.view.write().await;
+                            view.is_connected = false;
+                            view.latency_ms = 0;
+                        }
+                        state_checker.log_event(
+                            "WARNING: Connection to edge controller lost (heartbeat timeout)".to_string()
+                        ).await;
+                        let _ = app_handle_checker.emit("connection-status", false);
+                    }
                 }
             }
         });

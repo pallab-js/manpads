@@ -10,6 +10,7 @@
   let safetyLatchReleased = $state(false);
   let isSending = $state(false);
   let commandError = $state('');
+  let pendingCommand = $state<'arm' | 'disarm' | 'fire' | 'estop' | null>(null);
 
   let disarmHoldProgress = $state(0);
   let isDisarmHolding = $state(false);
@@ -82,6 +83,7 @@
     }
 
     try {
+      pendingCommand = action;
       isSending = true;
       commandError = '';
       await sendOperatorCommand(action);
@@ -95,6 +97,7 @@
       commandError = e instanceof Error ? e.message : `Failed to execute: ${action}`;
     } finally {
       isSending = false;
+      pendingCommand = null;
     }
   }
 </script>
@@ -102,13 +105,21 @@
 <div class="p-lg bg-canvas-soft border border-hairline rounded-lg shadow-lvl1 space-y-md">
   <h3 class="text-xs font-mono uppercase tracking-wider text-ink-mute border-b border-hairline pb-xs">Operator Command Console</h3>
 
+  {#if commandError}
+    <div class="p-sm bg-status-error/10 border border-status-error/30 text-status-error text-micro font-code rounded-md animate-pulse">
+      {commandError}
+    </div>
+  {/if}
+
   <div class="grid grid-cols-2 gap-md">
     <button
       onclick={() => handleCommand('arm')}
       disabled={!isConnected || systemState === 'armed' || systemState === 'active' || isSending || cooldownRemaining > 0}
       class="py-md px-lg bg-canvas-elevated hover:bg-canvas-elevated/70 border border-status-warning/40 hover:border-status-warning disabled:border-hairline text-status-warning disabled:text-ink-faint rounded-md font-mono text-xs uppercase font-bold tracking-wider transition duration-150 disabled:pointer-events-none"
     >
-      {#if cooldownRemaining > 0}
+      {#if isSending && pendingCommand === 'arm'}
+        <span class="animate-pulse">SENDING...</span>
+      {:else if cooldownRemaining > 0}
         WAIT {cooldownRemaining}s
       {:else if systemState === 'armed'}
         SYSTEM ARMED
@@ -174,17 +185,13 @@
           : 'bg-status-error/15 border-status-error text-status-error hover:bg-status-error hover:text-canvas cursor-pointer shadow-lvl2'
         }"
     >
-      {#if cooldownRemaining > 0}
+      {#if isSending && pendingCommand === 'fire'}
+        <span class="animate-pulse">SENDING FIRE...</span>
+      {:else if cooldownRemaining > 0}
         WAIT {cooldownRemaining}s
       {:else}
         SEND FIRE TRN
       {/if}
     </button>
   </div>
-
-  {#if commandError}
-    <div class="p-sm bg-status-error/10 border border-status-error/30 text-status-error text-micro font-code rounded-md animate-pulse">
-      {commandError}
-    </div>
-  {/if}
 </div>

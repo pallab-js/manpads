@@ -1,4 +1,32 @@
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
+
+pub const PROTOCOL_VERSION: u8 = 1;
+
+static HMAC_KEY: OnceLock<Vec<u8>> = OnceLock::new();
+
+pub fn init_hmac_key(secret: &str) {
+    HMAC_KEY.set(secret.as_bytes().to_vec()).ok();
+}
+
+pub fn compute_hmac(payload_str: &str) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let key = HMAC_KEY.get().expect("HMAC key must be initialized before use");
+    let mut mac = Hmac::<Sha256>::new_from_slice(key)
+        .expect("HMAC-SHA256 accepts any key length");
+    mac.update(payload_str.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+pub mod fault_flags {
+    pub const OK: u32 = 0;
+    pub const WATCHDOG_TIMEOUT: u32 = 1 << 0;
+    pub const GPIO_INTERLOCK_ERR: u32 = 1 << 1;
+    pub const THERMAL_CRITICAL: u32 = 1 << 2;
+    pub const BATTERY_LOW: u32 = 1 << 3;
+    pub const GPS_STALE: u32 = 1 << 4;
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -12,6 +40,7 @@ pub enum CommandAction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandPayload {
+    pub protocol_version: u8,
     pub seq: u64,
     pub timestamp_ms: u64,
     pub action: CommandAction,
@@ -32,6 +61,7 @@ pub enum SystemState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TelemetryFrame {
+    pub protocol_version: u8,
     pub seq: u64,
     pub timestamp_ms: u64,
     pub system_state: SystemState,
@@ -46,35 +76,13 @@ pub struct TelemetryFrame {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AckFrame {
+    pub protocol_version: u8,
     pub seq: u64,
     pub timestamp_ms: u64,
     pub command_seq: u64,
     pub success: bool,
     pub error_msg: String,
     pub hmac: String,
-}
-
-/// Returns the HMAC secret key, from MANPADS_HMAC_SECRET env var or default.
-pub fn hmac_secret() -> String {
-    std::env::var("MANPADS_HMAC_SECRET").unwrap_or_else(|_| "manpads-td-secret-key".to_string())
-}
-
-/// Operator authentication token loaded from MANPADS_OPERATOR_TOKEN env var
-/// or falls back to the TD demo default.
-pub fn operator_token() -> String {
-    std::env::var("MANPADS_OPERATOR_TOKEN")
-        .unwrap_or_else(|_| "DEMO-OPERATOR-TOKEN-2026".to_string())
-}
-
-/// HMAC-SHA256 based message authentication
-pub fn compute_hmac(payload_str: &str) -> String {
-    use hmac::{Hmac, Mac};
-    use sha2::Sha256;
-
-    let mut mac = Hmac::<Sha256>::new_from_slice(hmac_secret().as_bytes())
-        .expect("HMAC-SHA256 accepts any key length");
-    mac.update(payload_str.as_bytes());
-    hex::encode(mac.finalize().into_bytes())
 }
 
 pub trait SignedMessage: Clone + serde::Serialize {
@@ -152,26 +160,21 @@ mod tests {
 
     #[test]
     fn test_command_serialization_and_signing() {
+        let key = "test-hmac-key-32-bytes-long-okay!";
+        init_hmac_key(key);
         let mut cmd = CommandPayload {
+            protocol_version: PROTOCOL_VERSION,
             seq: 42,
             timestamp_ms: 1717083040000,
             action: CommandAction::Arm,
-            auth_token: "DEMO-OPERATOR-TOKEN-2026".to_string(),
+            auth_token: "test-token".to_string(),
             hmac: String::new(),
         };
-
-        // Assert unsign verifies to false
         assert!(!cmd.verify_signature());
-
-        // Sign the frame
         cmd.sign();
         assert!(!cmd.hmac.is_empty());
-
-        // Serialize and deserialize
         let json = cmd.to_json().unwrap();
         let parsed = CommandPayload::from_json(&json).unwrap();
-
-        // Verify HMAC signature works on parsed struct
         assert!(parsed.verify_signature());
         assert_eq!(parsed.seq, 42);
         assert_eq!(parsed.action, CommandAction::Arm);
@@ -180,6 +183,7 @@ mod tests {
     #[test]
     fn test_telemetry_frame_signature() {
         let mut frame = TelemetryFrame {
+            protocol_version: PROTOCOL_VERSION,
             seq: 100,
             timestamp_ms: 1717083040100,
             system_state: SystemState::Armed,
@@ -190,14 +194,26 @@ mod tests {
             fault_mask: 0,
             hmac: String::new(),
         };
-
         assert!(!frame.verify_signature());
-
         frame.sign();
         assert!(frame.verify_signature());
-
-        // Change values to simulate tampering
         frame.battery_voltage = 8.0;
         assert!(!frame.verify_signature());
+    }
+
+    #[test]
+    fn test_fault_flags_are_powers_of_two() {
+        let flags = [
+            fault_flags::OK,
+            fault_flags::WATCHDOG_TIMEOUT,
+            fault_flags::GPIO_INTERLOCK_ERR,
+            fault_flags::THERMAL_CRITICAL,
+            fault_flags::BATTERY_LOW,
+            fault_flags::GPS_STALE,
+        ];
+        for flag in &flags {
+            if *flag == 0 { continue; }
+            assert!((flag & (flag - 1)) == 0, "{:b} is not a power of two", flag);
+        }
     }
 }

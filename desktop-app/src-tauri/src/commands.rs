@@ -1,17 +1,24 @@
+use crate::error::AppError;
 use crate::network::pi_client::CommandTx;
-use crate::state::{AppState, AppStateData};
+use crate::state::{AppState, AppStateView};
 use pi_controller::network::protocol::{CommandAction, CommandPayload};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{Manager, State};
 
-#[tauri::command]
-pub fn get_app_state(state: State<'_, Arc<AppState>>) -> Result<AppStateData, String> {
-    if let Ok(d) = state.data.lock() {
-        Ok(d.clone())
-    } else {
-        Err("Failed to lock AppState".to_string())
+pub fn parse_action(s: &str) -> Result<CommandAction, AppError> {
+    match s {
+        "arm" => Ok(CommandAction::Arm),
+        "disarm" => Ok(CommandAction::Disarm),
+        "fire" => Ok(CommandAction::Fire),
+        "estop" => Ok(CommandAction::Estop),
+        _ => Err(AppError::UnknownAction(s.to_string())),
     }
+}
+
+#[tauri::command]
+pub async fn get_app_state(state: State<'_, Arc<AppState>>) -> Result<AppStateView, AppError> {
+    Ok(state.view.read().await.clone())
 }
 
 #[tauri::command]
@@ -19,21 +26,10 @@ pub async fn send_operator_command(
     action_str: String,
     state: State<'_, Arc<AppState>>,
     cmd_tx: State<'_, CommandTx>,
-) -> Result<u64, String> {
-    let auth_token;
-    if let Ok(d) = state.data.lock() {
-        auth_token = d.operator_token.clone();
-    } else {
-        return Err("Failed to lock AppState".to_string());
-    }
+) -> Result<u64, AppError> {
+    let action = parse_action(&action_str)?;
 
-    let action = match action_str.as_str() {
-        "arm" => CommandAction::Arm,
-        "disarm" => CommandAction::Disarm,
-        "fire" => CommandAction::Fire,
-        "estop" => CommandAction::Estop,
-        _ => return Err(format!("Unknown action: {}", action_str)),
-    };
+    let auth_token = state.data.read().await.operator_token.clone();
 
     let timestamp_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -41,28 +37,27 @@ pub async fn send_operator_command(
         .as_millis() as u64;
 
     let now = Instant::now();
-
     let seq;
-    if let Ok(mut d) = state.data.lock() {
-        if let Some(last_time) = d.last_command_time {
+
+    {
+        let mut data = state.data.write().await;
+        if let Some(last_time) = data.last_command_time {
             if now < last_time || now.duration_since(last_time) < Duration::from_secs(1) {
-                state.log_event("BLOCKED: Operator command rate-limited (limit 1Hz)".to_string());
-                return Err("BLOCKED: Command frequency restricted to 1Hz.".to_string());
+                return Err(AppError::RateLimited { wait_ms: 1000 });
             }
         }
-        d.command_seq += 1;
-        seq = d.command_seq;
-        d.last_command_time = Some(now);
-    } else {
-        return Err("Failed to lock AppState".to_string());
+        data.command_seq += 1;
+        seq = data.command_seq;
+        data.last_command_time = Some(now);
     }
 
     state.log_event(format!(
         "Operator requested action: {:?} (seq={})",
         action, seq
-    ));
+    )).await;
 
     let payload = CommandPayload {
+        protocol_version: pi_controller::network::protocol::PROTOCOL_VERSION,
         seq,
         timestamp_ms,
         action,
@@ -70,36 +65,29 @@ pub async fn send_operator_command(
         hmac: String::new(),
     };
 
-    if let Err(e) = cmd_tx.tx.send(payload).await {
-        let err_msg = format!("Failed to send command to network queue: {}", e);
-        state.log_event(format!("ERROR: {}", err_msg));
-        Err(err_msg)
-    } else {
-        Ok(seq)
-    }
+    cmd_tx.tx.send(payload).await
+        .map_err(|e| AppError::NetworkSend(e.to_string()))?;
+
+    Ok(seq)
 }
 
 #[tauri::command]
-pub fn get_settings(state: State<'_, Arc<AppState>>) -> Result<AppStateData, String> {
-    if let Ok(d) = state.data.lock() {
-        Ok(d.clone())
-    } else {
-        Err("Failed to lock AppState".to_string())
-    }
+pub async fn get_settings(state: State<'_, Arc<AppState>>) -> Result<AppStateView, AppError> {
+    Ok(state.view.read().await.clone())
 }
 
 #[tauri::command]
-pub fn update_settings(
+pub async fn update_settings(
     pi_ip: String,
     pi_port: u16,
     local_port: u16,
     state: State<'_, Arc<AppState>>,
     app_handle: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let app_data = app_handle
         .path()
         .app_data_dir()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| AppError::Io(e.to_string()))?;
     let existing = crate::settings::Settings::load(&app_data);
     let save = crate::settings::Settings {
         pi_ip: pi_ip.clone(),
@@ -107,40 +95,60 @@ pub fn update_settings(
         local_port,
         operator_token: existing.operator_token,
     };
-    save.save(&app_data)?;
+    save.save(&app_data).map_err(|e| AppError::Settings(e))?;
 
-    if let Ok(mut d) = state.data.lock() {
-        d.pi_ip = save.pi_addr();
-        d.pi_port = pi_port;
-        d.local_port = local_port;
+    {
+        let mut view = state.view.write().await;
+        view.pi_ip = pi_ip;
+        view.pi_port = pi_port;
+        view.local_port = local_port;
     }
     Ok(())
 }
 
 #[tauri::command]
-pub fn export_audit_log(
+pub async fn export_audit_log(
     state: State<'_, Arc<AppState>>,
     app_handle: tauri::AppHandle,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     let app_data = app_handle
         .path()
         .app_data_dir()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| AppError::Io(e.to_string()))?;
     let path = app_data.join("session.log");
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(parent).map_err(|e| AppError::Io(e.to_string()))?;
     }
 
-    let log_content = if let Ok(d) = state.data.lock() {
-        d.audit_log
-            .iter()
-            .map(|s| s.as_str())
-            .collect::<Vec<_>>()
-            .join("\n")
-    } else {
-        return Err("Failed to lock AppState".to_string());
-    };
+    let log_content = state.data.read().await.audit_log
+        .iter()
+        .map(|s| s.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
 
-    std::fs::write(&path, &log_content).map_err(|e| e.to_string())?;
+    std::fs::write(&path, &log_content).map_err(|e| AppError::Io(e.to_string()))?;
     Ok(path.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn action_parsing_exhaustive() {
+        for (input, expected) in [
+            ("arm", CommandAction::Arm),
+            ("disarm", CommandAction::Disarm),
+            ("fire", CommandAction::Fire),
+            ("estop", CommandAction::Estop),
+        ] {
+            let result = parse_action(input).unwrap();
+            assert_eq!(result, expected);
+        }
+    }
+
+    #[test]
+    fn action_parsing_unknown_returns_error() {
+        assert!(parse_action("launch_missiles").is_err());
+    }
 }
