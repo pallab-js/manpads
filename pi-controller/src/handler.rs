@@ -43,7 +43,12 @@ mod tests {
 
     #[test]
     fn test_any_to_safe() {
-        for state in [SystemState::Armed, SystemState::Active, SystemState::Emergency, SystemState::Off] {
+        for state in [
+            SystemState::Armed,
+            SystemState::Active,
+            SystemState::Emergency,
+            SystemState::Off,
+        ] {
             let (new_state, err) = apply_state_transition(state, CommandAction::Disarm);
             assert_eq!(new_state, SystemState::Safe);
             assert!(err.is_empty());
@@ -52,7 +57,12 @@ mod tests {
 
     #[test]
     fn test_any_to_emergency() {
-        for state in [SystemState::Safe, SystemState::Armed, SystemState::Active, SystemState::Off] {
+        for state in [
+            SystemState::Safe,
+            SystemState::Armed,
+            SystemState::Active,
+            SystemState::Off,
+        ] {
             let (new_state, err) = apply_state_transition(state, CommandAction::Estop);
             assert_eq!(new_state, SystemState::Emergency);
             assert!(err.is_empty());

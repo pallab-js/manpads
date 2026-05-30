@@ -1,15 +1,17 @@
-use std::net::{SocketAddr, Ipv4Addr, IpAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
-use pi_controller::network::protocol::{CommandPayload, TelemetryFrame, AckFrame, SystemState, CommandAction, SignedMessage};
-use pi_controller::hardware::sensors::SensorPoller;
+use pi_controller::handler::apply_state_transition;
 use pi_controller::hardware::actuators::Actuators;
 use pi_controller::hardware::interlock::HardwareInterlock;
-use pi_controller::handler::apply_state_transition;
+use pi_controller::hardware::sensors::SensorPoller;
+use pi_controller::network::protocol::{
+    AckFrame, CommandAction, CommandPayload, SignedMessage, SystemState, TelemetryFrame,
+};
 
 const DESKTOP_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8081);
 
@@ -88,7 +90,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             timestamp_ms: ack_timestamp,
                             command_seq: cmd.seq,
                             success: false,
-                            error_msg: "ACCESS DENIED: Unauthorized operator session token".to_string(),
+                            error_msg: "ACCESS DENIED: Unauthorized operator session token"
+                                .to_string(),
                             hmac: String::new(),
                         };
                         ack.sign();
@@ -108,7 +111,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     if !seq_ok {
-                        warn!("Command sequence sequence older than processed. Ignoring seq={}", cmd.seq);
+                        warn!(
+                            "Command sequence sequence older than processed. Ignoring seq={}",
+                            cmd.seq
+                        );
                         continue;
                     }
 
@@ -118,20 +124,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let mut transition_success = true;
 
                     let is_estop = interlock_recv.lock().await.is_estop_active();
-                    if is_estop && cmd.action != CommandAction::Estop && cmd.action != CommandAction::Disarm {
+                    if is_estop
+                        && cmd.action != CommandAction::Estop
+                        && cmd.action != CommandAction::Disarm
+                    {
                         err_msg = "BLOCKED: Safety E-STOP interlock active".to_string();
                         transition_success = false;
                     } else {
                         let mut state = system_state_recv.lock().await;
-                        let (new_state, transition_err) = apply_state_transition(*state, cmd.action);
+                        let (new_state, transition_err) =
+                            apply_state_transition(*state, cmd.action);
                         if transition_err.is_empty() {
                             *state = new_state;
                             let mut act = actuators_recv.lock().await;
                             act.set_state(new_state);
                             match cmd.action {
                                 CommandAction::Fire => act.trigger_fire(),
-                                CommandAction::Disarm => { interlock_recv.lock().await.software_estop = false; }
-                                CommandAction::Estop => { interlock_recv.lock().await.software_estop = true; }
+                                CommandAction::Disarm => {
+                                    interlock_recv.lock().await.software_estop = false;
+                                }
+                                CommandAction::Estop => {
+                                    interlock_recv.lock().await.software_estop = true;
+                                }
                                 _ => {}
                             }
                             drop(act);
@@ -175,10 +189,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         loop {
             tokio::time::sleep(Duration::from_millis(100)).await;
-            
+
             let state = *system_state.lock().await;
             let (volt, temp, lat, lng) = sensors_send.lock().await.poll(state);
-            
+
             // Build Fault Mask
             let mut fault_mask = 0u32;
             if interlock_send.lock().await.is_estop_active() {
@@ -208,7 +222,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             frame.sign();
 
             if let Ok(serialized) = frame.to_json() {
-                let _ = local_socket_send.send_to(serialized.as_bytes(), &DESKTOP_ADDR).await;
+                let _ = local_socket_send
+                    .send_to(serialized.as_bytes(), &DESKTOP_ADDR)
+                    .await;
             }
         }
     });
@@ -217,12 +233,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // If armed or active, and we lose connection (no telemetry poll/heartbeats) from the controller, we disarm immediately to safe state.
     loop {
         tokio::time::sleep(Duration::from_millis(500)).await;
-        
+
         let last_time = *last_command_time_watchdog.lock().await;
         let mut state = system_state_watchdog.lock().await;
 
-        if (*state == SystemState::Armed || *state == SystemState::Active) 
-            && last_time.elapsed() > Duration::from_millis(3000) 
+        if (*state == SystemState::Armed || *state == SystemState::Active)
+            && last_time.elapsed() > Duration::from_millis(3000)
         {
             warn!("WATCHDOG INTERLOCK: Heartbeat to controller lost for 3000ms. Disarming system to SAFE.");
             *state = SystemState::Safe;
@@ -232,7 +248,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // If physical button Estop triggers, transition to Emergency state
         if interlock_watchdog.lock().await.is_estop_active() && *state != SystemState::Emergency {
             *state = SystemState::Emergency;
-            actuators_watchdog.lock().await.set_state(SystemState::Emergency);
+            actuators_watchdog
+                .lock()
+                .await
+                .set_state(SystemState::Emergency);
         }
     }
 }

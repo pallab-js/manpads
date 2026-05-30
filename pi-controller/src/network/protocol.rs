@@ -56,8 +56,7 @@ pub struct AckFrame {
 
 /// Returns the HMAC secret key, from MANPADS_HMAC_SECRET env var or default.
 pub fn hmac_secret() -> String {
-    std::env::var("MANPADS_HMAC_SECRET")
-        .unwrap_or_else(|_| "manpads-td-secret-key".to_string())
+    std::env::var("MANPADS_HMAC_SECRET").unwrap_or_else(|_| "manpads-td-secret-key".to_string())
 }
 
 /// Operator authentication token loaded from MANPADS_OPERATOR_TOKEN env var
@@ -104,18 +103,30 @@ pub trait SignedMessage: Clone + serde::Serialize {
 }
 
 impl SignedMessage for CommandPayload {
-    fn hmac_ref(&self) -> &str { &self.hmac }
-    fn set_hmac(&mut self, hmac: String) { self.hmac = hmac; }
+    fn hmac_ref(&self) -> &str {
+        &self.hmac
+    }
+    fn set_hmac(&mut self, hmac: String) {
+        self.hmac = hmac;
+    }
 }
 
 impl SignedMessage for TelemetryFrame {
-    fn hmac_ref(&self) -> &str { &self.hmac }
-    fn set_hmac(&mut self, hmac: String) { self.hmac = hmac; }
+    fn hmac_ref(&self) -> &str {
+        &self.hmac
+    }
+    fn set_hmac(&mut self, hmac: String) {
+        self.hmac = hmac;
+    }
 }
 
 impl SignedMessage for AckFrame {
-    fn hmac_ref(&self) -> &str { &self.hmac }
-    fn set_hmac(&mut self, hmac: String) { self.hmac = hmac; }
+    fn hmac_ref(&self) -> &str {
+        &self.hmac
+    }
+    fn set_hmac(&mut self, hmac: String) {
+        self.hmac = hmac;
+    }
 }
 
 macro_rules! impl_json {
@@ -190,4 +201,3 @@ mod tests {
         assert!(!frame.verify_signature());
     }
 }
-

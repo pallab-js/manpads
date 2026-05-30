@@ -68,7 +68,12 @@ impl SensorPoller {
         self.gps_lat += rand_noise() * 0.00002;
         self.gps_lng += rand_noise() * 0.00002;
 
-        (self.battery_voltage, self.temperature, self.gps_lat, self.gps_lng)
+        (
+            self.battery_voltage,
+            self.temperature,
+            self.gps_lat,
+            self.gps_lng,
+        )
     }
 }
 

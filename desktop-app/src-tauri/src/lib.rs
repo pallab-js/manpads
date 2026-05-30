@@ -1,13 +1,13 @@
-pub mod state;
-pub mod network;
 pub mod commands;
+pub mod network;
 pub mod settings;
+pub mod state;
 
+use network::pi_client::{CommandTx, PiClient};
+use settings::Settings;
+use state::AppState;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
-use state::AppState;
-use settings::Settings;
-use network::pi_client::{PiClient, CommandTx};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

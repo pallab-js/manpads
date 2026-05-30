@@ -1,6 +1,6 @@
-use std::sync::Mutex;
-use std::collections::VecDeque;
 use pi_controller::network::protocol::TelemetryFrame;
+use std::collections::VecDeque;
+use std::sync::Mutex;
 
 #[derive(Debug, serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -17,7 +17,6 @@ pub struct AppStateData {
     #[serde(skip)]
     pub last_command_time: Option<std::time::Instant>,
 }
-
 
 pub struct AppState {
     pub data: Mutex<AppStateData>,
@@ -44,7 +43,6 @@ impl AppState {
                 operator_token: "DEMO-OPERATOR-TOKEN-2026".to_string(),
                 last_command_time: None,
             }),
-
         }
     }
 

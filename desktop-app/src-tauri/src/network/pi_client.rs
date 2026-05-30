@@ -1,12 +1,12 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tauri::Emitter;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
-use tauri::Emitter;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
-use pi_controller::network::protocol::{CommandPayload, TelemetryFrame, AckFrame, SignedMessage};
 use crate::state::AppState;
+use pi_controller::network::protocol::{AckFrame, CommandPayload, SignedMessage, TelemetryFrame};
 
 pub struct PiClient {
     pub pi_addr: String,
@@ -19,7 +19,10 @@ pub struct CommandTx {
 
 impl PiClient {
     pub fn new(pi_addr: String, local_addr: String) -> Self {
-        Self { pi_addr, local_addr }
+        Self {
+            pi_addr,
+            local_addr,
+        }
     }
 
     pub fn start(
@@ -51,7 +54,8 @@ impl PiClient {
             let state_checker = state.clone();
             let app_handle_checker = app_handle.clone();
 
-            let pending_commands = Arc::new(Mutex::new(std::collections::HashMap::<u64, Instant>::new()));
+            let pending_commands =
+                Arc::new(Mutex::new(std::collections::HashMap::<u64, Instant>::new()));
             let pending_commands_send = pending_commands.clone();
             let pending_commands_recv = pending_commands.clone();
 
@@ -69,7 +73,9 @@ impl PiClient {
 
                             if let Ok(frame) = TelemetryFrame::from_json(raw_str) {
                                 if !frame.verify_signature() {
-                                    warn!("Signature mismatch on Telemetry frame! Discarding packet.");
+                                    warn!(
+                                        "Signature mismatch on Telemetry frame! Discarding packet."
+                                    );
                                     continue;
                                 }
 
@@ -87,7 +93,10 @@ impl PiClient {
                                 }
 
                                 if is_new_conn {
-                                    state_recv.log_event(format!("Connected to Edge Controller at {}", src));
+                                    state_recv.log_event(format!(
+                                        "Connected to Edge Controller at {}",
+                                        src
+                                    ));
                                     let _ = app_handle_recv.emit("connection-status", true);
                                 }
 
@@ -160,12 +169,18 @@ impl PiClient {
                 }
 
                 if was_connected && elapsed > Duration::from_millis(1500) {
-                    warn!("Heartbeat lost! No telemetry for {}ms.", elapsed.as_millis());
+                    warn!(
+                        "Heartbeat lost! No telemetry for {}ms.",
+                        elapsed.as_millis()
+                    );
                     if let Ok(mut d) = state_checker.data.lock() {
                         d.is_connected = false;
                         d.latency_ms = 0;
                     }
-                    state_checker.log_event("WARNING: Connection to edge controller lost (heartbeat timeout)".to_string());
+                    state_checker.log_event(
+                        "WARNING: Connection to edge controller lost (heartbeat timeout)"
+                            .to_string(),
+                    );
                     let _ = app_handle_checker.emit("connection-status", false);
                 }
             }
@@ -180,7 +195,10 @@ impl PiClient {
             match UdpSocket::bind(local_addr).await {
                 Ok(socket) => return Some(socket),
                 Err(e) => {
-                    warn!("UDP bind attempt {}/5 failed (retry in {:?}): {}", attempt, delay, e);
+                    warn!(
+                        "UDP bind attempt {}/5 failed (retry in {:?}): {}",
+                        attempt, delay, e
+                    );
                     tokio::time::sleep(delay).await;
                     let jitter = Duration::from_millis(rand::random::<u64>() % 250);
                     delay = ((delay * 2).min(Duration::from_secs(10))) + jitter;

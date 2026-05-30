@@ -1,9 +1,9 @@
+use crate::network::pi_client::CommandTx;
+use crate::state::{AppState, AppStateData};
+use pi_controller::network::protocol::{CommandAction, CommandPayload};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{Manager, State};
-use pi_controller::network::protocol::{CommandPayload, CommandAction};
-use crate::state::{AppState, AppStateData};
-use crate::network::pi_client::CommandTx;
 
 #[tauri::command]
 pub fn get_app_state(state: State<'_, Arc<AppState>>) -> Result<AppStateData, String> {
@@ -57,7 +57,10 @@ pub async fn send_operator_command(
         return Err("Failed to lock AppState".to_string());
     }
 
-    state.log_event(format!("Operator requested action: {:?} (seq={})", action, seq));
+    state.log_event(format!(
+        "Operator requested action: {:?} (seq={})",
+        action, seq
+    ));
 
     let payload = CommandPayload {
         seq,
@@ -93,7 +96,10 @@ pub fn update_settings(
     state: State<'_, Arc<AppState>>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    let app_data = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let app_data = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
     let existing = crate::settings::Settings::load(&app_data);
     let save = crate::settings::Settings {
         pi_ip: pi_ip.clone(),
@@ -116,14 +122,21 @@ pub fn export_audit_log(
     state: State<'_, Arc<AppState>>,
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
-    let app_data = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let app_data = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
     let path = app_data.join("session.log");
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
     let log_content = if let Ok(d) = state.data.lock() {
-        d.audit_log.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n")
+        d.audit_log
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
     } else {
         return Err("Failed to lock AppState".to_string());
     };
