@@ -101,7 +101,8 @@ jobs:
             libayatana-appindicator3-dev librsvg2-dev patchelf
       - run: pnpm -C desktop-app/frontend install --frozen-lockfile
       - name: Build Tauri app
-        run: pnpm -C desktop-app/frontend tauri build
+        working-directory: desktop-app/frontend
+        run: pnpm tauri build
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-release
