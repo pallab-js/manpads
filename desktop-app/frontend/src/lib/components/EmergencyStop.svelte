@@ -83,13 +83,13 @@
   });
 </script>
 
-<div class="p-lg bg-canvas-soft border border-hairline rounded-lg shadow-lvl1 flex flex-col items-center justify-center space-y-md text-center flex-1">
-  <div class="w-full text-left">
+<div class="p-lg bg-canvas-soft border border-hairline rounded-lg shadow-lvl1 flex flex-col flex-1">
+  <div class="w-full shrink-0">
     <h3 class="text-xs font-mono uppercase tracking-wider text-ink-mute border-b border-hairline pb-xs">Emergency Operations</h3>
   </div>
 
   {#if !estopTriggered}
-    <div class="relative flex flex-col items-center">
+    <div class="flex-1 flex flex-col items-center justify-center text-center">
       <button
         onmousedown={startHolding}
         onmouseup={stopHolding}
@@ -117,7 +117,7 @@
       <div class="text-[10px] font-code text-ink-faint mt-lg">[hold or press <kbd class="px-xs py-[1px] bg-canvas-elevated border border-hairline rounded-sm text-ink-mute">Esc</kbd> for 1.5s]</div>
     </div>
   {:else}
-    <div class="w-full flex flex-col items-center space-y-sm">
+    <div class="flex-1 flex flex-col items-center justify-center text-center space-y-sm">
       <div class="w-16 h-16 rounded-full bg-status-error flex items-center justify-center text-xl animate-bounce">
         🚨
       </div>
