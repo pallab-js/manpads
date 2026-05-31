@@ -197,14 +197,14 @@
       </div>
     </div>
   {:else}
-    <div class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-lg overflow-hidden">
-      <div class="lg:col-span-7 flex flex-col space-y-lg justify-start">
+    <div class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-lg auto-rows-1fr overflow-hidden">
+      <div class="lg:col-span-7 flex flex-col space-y-lg overflow-y-auto">
         <ConnectionStatus {isConnected} {latencyMs} {piIp} />
         <TelemetryPanel {lastTelemetry} {telemetryHistory} />
         <AuditFeed {auditLog} />
       </div>
 
-      <div class="lg:col-span-5 flex flex-col space-y-lg">
+      <div class="lg:col-span-5 flex flex-col space-y-lg overflow-y-auto">
         <CommandConsole {isConnected} {systemState} />
         <EmergencyStop {isConnected} />
       </div>

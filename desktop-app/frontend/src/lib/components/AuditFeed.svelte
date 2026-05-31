@@ -34,7 +34,7 @@
   }
 </script>
 
-<div class="p-lg bg-canvas-soft border border-hairline rounded-lg shadow-lvl1 flex flex-col space-y-md">
+<div class="p-lg bg-canvas-soft border border-hairline rounded-lg shadow-lvl1 flex flex-col space-y-md flex-1">
   <div class="flex items-center justify-between border-b border-hairline pb-xs">
     <h3 class="text-xs font-mono uppercase tracking-wider text-ink-mute">Audit & Command Feed</h3>
     <div class="flex items-center space-x-sm">
@@ -56,7 +56,7 @@
 
   <div
     bind:this={logContainer}
-    class="flex-1 min-h-[140px] max-h-[220px] overflow-y-auto p-md bg-canvas border border-hairline rounded-md font-code text-[11px] text-ink-mute space-y-sm scrollbar-thin scrollbar-thumb-canvas-elevated"
+    class="flex-1 min-h-[100px] overflow-y-auto p-md bg-canvas border border-hairline rounded-md font-code text-[11px] text-ink-mute space-y-sm scrollbar-thin scrollbar-thumb-canvas-elevated"
   >
     {#if auditLog.length === 0}
       <div class="text-ink-faint italic font-mono uppercase">Console Feed Idle...</div>

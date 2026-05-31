@@ -83,7 +83,7 @@
   });
 </script>
 
-<div class="p-lg bg-canvas-soft border border-hairline rounded-lg shadow-lvl1 flex flex-col items-center justify-center space-y-md text-center">
+<div class="p-lg bg-canvas-soft border border-hairline rounded-lg shadow-lvl1 flex flex-col items-center justify-center space-y-md text-center flex-1">
   <div class="w-full text-left">
     <h3 class="text-xs font-mono uppercase tracking-wider text-ink-mute border-b border-hairline pb-xs">Emergency Operations</h3>
   </div>
