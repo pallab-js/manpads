@@ -183,6 +183,7 @@ mod tests {
 
     #[test]
     fn test_telemetry_frame_signature() {
+        init_hmac_key("test-hmac-key-32-bytes-long-okay!");
         let mut frame = TelemetryFrame {
             protocol_version: PROTOCOL_VERSION,
             seq: 100,
